@@ -50,12 +50,14 @@ addr_data:
 .globl MANGLE(bxfi_trampoline_end)
 MANGLE(bxfi_trampoline_end):
 
-.align 2
 
 /* ARM Thumb mode */
 
 .syntax unified
 .thumb
+
+// carefully aligned, so that the following LDR pesudo-instruction will be word-aligned, which is important because the same instruction on a halfword-aligned address might end up jumping a different PC-relative offset
+.align 1
 
 #ifdef ASSEMBLER_SUPPORTS_HIDDEN
 .hidden MANGLE(bxfi_trampoline_thumb)
