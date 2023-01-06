@@ -93,6 +93,7 @@ static void to_timespec(double timeout, struct timespec *timeo)
 
 static void *timeout_killer_fn(void *nil)
 {
+    fprintf(stderr, "timeout_killer_fn lock %d\n", getpid());
     pthread_mutex_lock(&self.sync);
 
     struct bxfi_timeout_request *req;
@@ -113,9 +114,11 @@ static void *timeout_killer_fn(void *nil)
         assert(rc == ETIMEDOUT);
         kill(req->pid, SIGPROF);
 
+        fprintf(stderr, "timeout_killer_fn lock2 %d\n", getpid());
         pthread_mutex_lock(&req->sb->sync);
         req->sb->props.status.timed_out = 1;
         pthread_mutex_unlock(&req->sb->sync);
+        fprintf(stderr, "timeout_killer_fn unlock2 %d\n", getpid());
 
         self.requests = req->next;
         free(req);
@@ -123,6 +126,7 @@ static void *timeout_killer_fn(void *nil)
 end:
     self.thread_active = 0;
     pthread_mutex_unlock(&self.sync);
+    fprintf(stderr, "timeout_killer_fn unlock %d\n", getpid());
     return nil;
 }
 
@@ -149,6 +153,7 @@ int bxfi_push_timeout(struct bxfi_sandbox *instance, double timeout)
     req->sb  = instance;
     req->pid = instance->props.pid;
 
+    fprintf(stderr, "bxfi_push_timeout lock %d\n", getpid());
     pthread_mutex_lock(&self.sync);
     if (!self.requests) {
         pthread_attr_t attrs;
@@ -176,16 +181,19 @@ int bxfi_push_timeout(struct bxfi_sandbox *instance, double timeout)
 
     pthread_cond_broadcast(&self.cond);
     pthread_mutex_unlock(&self.sync);
+    fprintf(stderr, "bxfi_push_timeout unlock %d\n", getpid());
     return 0;
 
 error:
     pthread_mutex_unlock(&self.sync);
+    fprintf(stderr, "bxfi_push_timeout unlock %d\n", getpid());
     free(req);
     return rc;
 }
 
 void bxfi_cancel_timeout(struct bxfi_sandbox *instance)
 {
+    fprintf(stderr, "bxfi_cancel_timeout lock %d\n", getpid());
     pthread_mutex_lock(&self.sync);
     int cancelled = 0;
 
@@ -203,4 +211,5 @@ void bxfi_cancel_timeout(struct bxfi_sandbox *instance)
         pthread_cond_broadcast(&self.cond);
     }
     pthread_mutex_unlock(&self.sync);
+    fprintf(stderr, "bxfi_cancel_timeout unlock %d\n", getpid());
 }

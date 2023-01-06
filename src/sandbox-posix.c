@@ -92,6 +92,7 @@ static struct bxfi_sandbox *reap_child(pid_t pid,
 {
     struct bxfi_sandbox *s;
 
+    fprintf(stderr, "reap_child lock %d\n", getpid());
     pthread_mutex_lock(&self.sync);
     for (s = self.alive; s; s = s->next) {
         if (s->wait_pid == pid)
@@ -99,9 +100,11 @@ static struct bxfi_sandbox *reap_child(pid_t pid,
     }
     if (!s) {
         pthread_mutex_unlock(&self.sync);
+        fprintf(stderr, "reap_child unlock %d\n", getpid());
         return NULL;
     }
     pthread_mutex_unlock(&self.sync);
+    fprintf(stderr, "reap_child unlock %d\n", getpid());
 
     bxfi_cancel_timeout(s);
 
@@ -110,6 +113,7 @@ static struct bxfi_sandbox *reap_child(pid_t pid,
     if (rc != pid)
         return NULL;
 
+    fprintf(stderr, "reap_child lock2 %d\n", getpid());
     pthread_mutex_lock(&s->sync);
     s->props.time.end = ts_end;
     s->props.time.elapsed = mts_end - s->start_monotonic;
@@ -125,6 +129,7 @@ static struct bxfi_sandbox *reap_child(pid_t pid,
         s->callback(&s->props);
 
     pthread_mutex_unlock(&s->sync);
+    fprintf(stderr, "reap_child unlock2 %d\n", getpid());
 
     return s;
 }
@@ -149,10 +154,12 @@ static void *child_pump_fn(void *nil)
     int wflags = WEXITED | WNOWAIT;
 
     for (;;) {
+        fprintf(stderr, "child_pump_fn lock %d\n", getpid());
         pthread_mutex_lock(&self.sync);
         while (!self.alive)
             pthread_cond_wait(&self.cond, &self.sync);
         pthread_mutex_unlock(&self.sync);
+        fprintf(stderr, "child_pump_fn unlock %d\n", getpid());
 
         siginfo_t infop;
         memset(&infop, 0, sizeof (infop));
@@ -182,15 +189,19 @@ static void *child_pump_fn(void *nil)
                 continue;
 
             int alive;
+            fprintf(stderr, "child_pump_fn lock2 %d\n", getpid());
             pthread_mutex_lock(&self.sync);
             remove_alive_by_pid((bxf_pid) infop.si_pid);
             alive = !!self.alive;
             pthread_mutex_unlock(&self.sync);
+            fprintf(stderr, "child_pump_fn unlock2 %d\n", getpid());
 
+            fprintf(stderr, "child_pump_fn lock3 %d\n", getpid());
             pthread_mutex_lock(&instance->sync);
             instance->waited = 1;
             pthread_cond_broadcast(&instance->cond);
             pthread_mutex_unlock(&instance->sync);
+            fprintf(stderr, "child_pump_fn unlock3 %d\n", getpid());
 
             if (!alive)
                 goto end;
@@ -785,6 +796,7 @@ int bxfi_exec(bxf_instance **out, bxf_sandbox *sandbox,
                 goto err;
 
 
+        fprintf(stderr, "bxfi_exec lock %d\n", getpid());
         pthread_mutex_lock(&self.sync);
         /* spawn a wait thread if no sandboxes are alive right now */
         if (!self.alive) {
@@ -796,6 +808,7 @@ int bxfi_exec(bxf_instance **out, bxf_sandbox *sandbox,
         self.alive = instance;
         pthread_cond_broadcast(&self.cond);
         pthread_mutex_unlock(&self.sync);
+        fprintf(stderr, "bxfi_exec unlock %d\n", getpid());
 
         bxfi_unmap_local_ctx(&local_ctx);
 
@@ -898,6 +911,7 @@ int bxf_term(bxf_instance *instance)
     if (!sb->waited)
         return -EINVAL;
 
+    fprintf(stderr, "bxf_term lock %d\n", getpid());
     pthread_mutex_lock(&self.sync);
     struct bxfi_sandbox **prev = &self.dead;
     int ok = 0;
@@ -910,6 +924,7 @@ int bxf_term(bxf_instance *instance)
         prev = &s->next;
     }
     pthread_mutex_unlock(&self.sync);
+    fprintf(stderr, "bxf_term unlock %d\n", getpid());
     if (!ok)
         return -EINVAL;
 
@@ -919,6 +934,7 @@ int bxf_term(bxf_instance *instance)
     if (sb->mantled)
         free((void *) instance->sandbox);
     pthread_mutex_destroy(&sb->sync);
+    fprintf(stderr, "bxf_term destroy %d\n", getpid());
     pthread_cond_destroy(&sb->cond);
     free(sb);
     return 0;
@@ -963,6 +979,7 @@ int bxf_wait(bxf_instance *instance, double timeout)
 #endif
 
     struct bxfi_sandbox *sb = bxfi_cont(instance, struct bxfi_sandbox, props);
+    fprintf(stderr, "wait lock %d\n", getpid());
     pthread_mutex_lock(&sb->sync);
     int rc = 0;
     while (!sb->waited) {
@@ -976,14 +993,17 @@ int bxf_wait(bxf_instance *instance, double timeout)
     if (!rc)
         sb->waited = 1;
     pthread_mutex_unlock(&sb->sync);
+    fprintf(stderr, "wait unlock %d\n", getpid());
 
     if (rc)
         return -rc;
 
+    fprintf(stderr, "wait lock2 %d\n", getpid());
     pthread_mutex_lock(&self.sync);
     if (!self.alive)
         term_child_pump();
     pthread_mutex_unlock(&self.sync);
+    fprintf(stderr, "wait unlock2 %d\n", getpid());
 
     /* Enforce the deletion of the shm file */
     if (!instance->status.alive) {
